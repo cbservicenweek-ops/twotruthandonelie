@@ -262,7 +262,7 @@
         apiKey: "AIzaSyB8iEBgfYrMwusJ1OrymelxS-5eQ5HkJbY",
         authDomain: "facts-and-1-lie-cb.firebaseapp.com",
         projectId: "facts-and-1-lie-cb",
-        databaseURL: "https://facts-and-1-lie-cb-default-rtdb.firebaseio.com/",
+        databaseURL: "https://facts-and-1-lie-cb-default-rtdb.firebaseio.com",
         storageBucket: "facts-and-1-lie-cb.firebasestorage.app",
         messagingSenderId: "629156125827",
         appId: "1:629156125827:web:69235337b78a0718414fb6"
@@ -358,7 +358,11 @@
 
         db.ref('rooms/' + roomCode).once('value', snapshot => {
             if (snapshot.exists()) {
-                db.ref(`rooms/${roomCode}/players/${myName}`).set({ score: 0, hasVotedThisRound: false });
+                db.ref(`rooms/${roomCode}/players/${myName}`).set({ 
+                    score: 0, 
+                    hasVotedThisRound: false,
+                    currentGuess: null 
+                });
                 enterGameScreen();
             } else {
                 alert("Room not found!");
@@ -369,12 +373,8 @@
     function submitVote(guess) {
         if (currentGameState.revealed) return;
         
-        const currentRoundData = currentGameState.facts[currentGameState.currentRound];
-        const isCorrect = (guess === currentRoundData.lie);
-
-        if (isCorrect) {
-            db.ref(`rooms/${roomCode}/players/${myName}/score`).set(currentGameState.players[myName].score + 1);
-        }
+        // Save the guess to the database, but do not calculate the score yet.
+        db.ref(`rooms/${roomCode}/players/${myName}/currentGuess`).set(guess);
         db.ref(`rooms/${roomCode}/players/${myName}/hasVotedThisRound`).set(true);
 
         document.getElementById('vote-status').innerText = "Vote submitted! Waiting for reveal...";
@@ -438,7 +438,8 @@
             } else if (!isHost) {
                 document.getElementById('vote-status').innerText = "Vote submitted! Waiting for reveal...";
             } else {
-                document.getElementById('vote-status').innerText = "Players are voting...";
+                // Show the Host which option is the lie
+                document.getElementById('vote-status').innerHTML = `<span style="color: var(--lie-color);"><strong>Host Secret: Fact ${roundData.lie} is the Lie.</strong></span><br>Players are voting...`;
             }
         } else {
             // Reveal phase
@@ -448,7 +449,7 @@
             b2.className = 'fact-btn ' + (roundData.lie === 2 ? 'lie-revealed' : 'truth-revealed');
             b3.className = 'fact-btn ' + (roundData.lie === 3 ? 'lie-revealed' : 'truth-revealed');
             
-            document.getElementById('vote-status').innerText = "The Lie has been revealed!";
+            document.getElementById('vote-status').innerText = "The Lie has been revealed! Points have been awarded.";
         }
     }
 
@@ -490,18 +491,40 @@
     }
 
     // ==========================================
-    // 8. HOST GAME CONTROLS
+    // 8. HOST GAME CONTROLS (Updated Scoring)
     // ==========================================
     function revealLie() {
-        db.ref(`rooms/${roomCode}/revealed`).set(true);
+        const currentRoundData = currentGameState.facts[currentGameState.currentRound];
+        const updates = {};
+        updates['revealed'] = true;
+
+        // Calculate scores for all players based on their current guess
+        Object.keys(currentGameState.players).forEach(pName => {
+            if (pName === "Host") return; // Skip host
+            
+            const player = currentGameState.players[pName];
+            
+            // Only award points if they actually voted
+            if (player.hasVotedThisRound && player.currentGuess) {
+                const isCorrect = (player.currentGuess === currentRoundData.lie);
+                
+                // 10 points for correct, 5 points for incorrect
+                const pointsEarned = isCorrect ? 10 : 5; 
+                updates[`players/${pName}/score`] = player.score + pointsEarned;
+            }
+        });
+
+        db.ref(`rooms/${roomCode}`).update(updates);
     }
 
     function nextRound() {
         if (currentGameState.currentRound >= currentGameState.facts.length) return;
 
         const updates = {};
+        // Reset player voting status for the next round
         Object.keys(currentGameState.players).forEach(p => {
             updates[`players/${p}/hasVotedThisRound`] = false;
+            updates[`players/${p}/currentGuess`] = null; 
         });
         updates['revealed'] = false;
         updates['currentRound'] = currentGameState.currentRound + 1;
