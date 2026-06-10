@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2 Truths and a Lie</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #4A90E2;
+            --primary-hover: #357ABD;
+            --bg-gradient-1: #f5f7fa;
+            --bg-gradient-2: #c3cfe2;
+            --text: #2d3436;
+            --glass-bg: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.4);
+            --truth-color: #2ecc71;
+            --lie-color: #e74c3c;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-gradient-1) 0%, var(--bg-gradient-2) 100%);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Glassmorphism Card Style */
+        .container, .glass-panel {
+            width: 100%;
+            max-width: 900px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .screen { display: none; animation: fadeIn 0.4s ease; }
+        .active { display: block; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        h1, h2, h3 { margin-top: 0; color: #1a1a1a; }
+
+        /* Modern Inputs & Buttons */
+        input, select {
+            padding: 12px 16px;
+            margin: 8px 0;
+            width: 80%;
+            max-width: 350px;
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 8px;
+            font-size: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            transition: all 0.3s ease;
+        }
+        input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 8px rgba(74, 144, 226, 0.3); }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 8px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(74, 144, 226, 0.2);
+        }
+        button:hover:not(:disabled) {
+            background-color: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(74, 144, 226, 0.3);
+        }
+        button:disabled { background-color: #bdc3c7; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        /* Game Layout */
+        #game-layout {
+            display: flex;
+            gap: 30px;
+            text-align: left;
+            margin-top: 20px;
+        }
+        #sidebar {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.5);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--glass-border);
+        }
+        #leaderboard-list { list-style: none; padding: 0; }
+        #leaderboard-list li {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 6px;
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        #main-board { flex: 2.5; }
+        
+        .fact-btn {
+            display: block;
+            width: 100%;
+            text-align: left;
+            margin-bottom: 15px;
+            background: white;
+            color: var(--text);
+            font-weight: 400;
+            border: 2px solid transparent;
+        }
+        .fact-btn:hover:not(:disabled) { background: #f8f9fa; border-color: var(--primary); }
+
+        /* Reveal Effects */
+        .lie-revealed {
+            background-color: var(--lie-color) !important;
+            color: white !important;
+            border-color: var(--lie-color) !important;
+            box-shadow: 0 0 20px rgba(231, 76, 60, 0.5) !important;
+            transform: scale(1.02);
+        }
+        .truth-revealed {
+            background-color: white !important;
+            color: var(--text) !important;
+            border-color: var(--truth-color) !important;
+            opacity: 0.7;
+        }
+
+        #host-controls { margin-top: 30px; padding-top: 20px; border-top: 2px dashed rgba(0,0,0,0.1); }
+
+        /* Celebration Screen */
+        #celebration-screen h1 { font-size: 3em; color: var(--primary); text-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .winner-card {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            display: inline-block;
+            margin: 20px 0;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transform: scale(1.1);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="landing-screen" class="screen active">
+        <h1>2 Truths and a Lie</h1>
+        <p>Welcome! Select your role to begin.</p>
+        <button onclick="showScreen('host-login-screen')">I am the Host</button>
+        <button onclick="showScreen('player-login-screen')" style="background-color: #2d3436;">I am a Player</button>
+    </div>
+
+    <div id="host-login-screen" class="screen">
+        <h2>Host Access</h2>
+        <input type="password" id="host-password" placeholder="Enter Host Password">
+        <br>
+        <button onclick="verifyHost()">Login</button>
+        <button onclick="showScreen('landing-screen')" style="background-color: transparent; color: var(--text); box-shadow: none;">Back</button>
+    </div>
+
+    <div id="host-setup-screen" class="screen">
+        <h2>Host Console</h2>
+        
+        <div class="glass-panel" style="margin-bottom: 20px; padding: 20px;">
+            <h3>Add Team Member Facts</h3>
+            <input type="text" id="fact-name" placeholder="Team Member's Name"><br>
+            <input type="text" id="fact-1" placeholder="Fact 1"><br>
+            <input type="text" id="fact-2" placeholder="Fact 2"><br>
+            <input type="text" id="fact-3" placeholder="Fact 3"><br>
+            <select id="lie-select">
+                <option value="">-- Select which one is the Lie --</option>
+                <option value="1">Fact 1 is the Lie</option>
+                <option value="2">Fact 2 is the Lie</option>
+                <option value="3">Fact 3 is the Lie</option>
+            </select><br>
+            <button onclick="addFactToList()">Add to Queue</button>
+        </div>
+
+        <p>Facts in Queue: <strong id="queue-count" style="color: var(--primary); font-size: 1.2em;">0</strong></p>
+        <button onclick="createRoom()" style="width: 100%; max-width: 350px;">Create Room & Start Game</button>
+    </div>
+
+    <div id="player-login-screen" class="screen">
+        <h2>Join Game</h2>
+        <input type="text" id="room-code-input" placeholder="Enter Room Code" style="text-transform: uppercase;"><br>
+        <input type="text" id="player-name-input" placeholder="Enter Your Name"><br>
+        <button onclick="joinRoom()">Join</button>
+        <button onclick="showScreen('landing-screen')" style="background-color: transparent; color: var(--text); box-shadow: none;">Back</button>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.1); padding-bottom: 15px;">
+            <h2 style="margin: 0;">Active Game</h2>
+            <div style="background: var(--primary); color: white; padding: 8px 16px; border-radius: 20px; font-weight: bold;" id="room-display">Code: ---</div>
+        </div>
+        
+        <div id="game-layout">
+            <div id="sidebar">
+                <h3 style="margin-top: 0;">Leaderboard</h3>
+                <ul id="leaderboard-list"></ul>
+            </div>
+            
+            <div id="main-board">
+                <h3 id="current-person" style="color: var(--primary); font-size: 1.5em;">Waiting for host...</h3>
+                <div id="voting-area" style="display: none; margin-top: 20px;">
+                    <button id="btn-opt-1" class="fact-btn" onclick="submitVote(1)"></button>
+                    <button id="btn-opt-2" class="fact-btn" onclick="submitVote(2)"></button>
+                    <button id="btn-opt-3" class="fact-btn" onclick="submitVote(3)"></button>
+                    <p id="vote-status" style="font-weight: 600; color: #7f8c8d;"></p>
+                </div>
+
+                <div id="host-controls" style="display: none;">
+                    <h3>Host Controls</h3>
+                    <button onclick="revealLie()" style="background-color: #e67e22;">Reveal the Lie!</button>
+                    <button onclick="nextRound()">Next Round</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="celebration-screen" class="screen">
+        <h1>Game Over!</h1>
+        <h2>The Ultimate Truth Teller is...</h2>
+        <div class="winner-card">
+            <h1 id="winner-name" style="margin: 0; font-size: 2.5em;">Winner Name</h1>
+            <p id="winner-score" style="margin: 10px 0 0 0; color: #7f8c8d; font-size: 1.2em;">0 pts</p>
+        </div>
+        <div style="margin-top: 30px;">
+            <h3>Final Standings</h3>
+            <ul id="final-leaderboard" style="list-style: none; padding: 0; max-width: 300px; margin: 0 auto; text-align: left;"></ul>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // 1. FIREBASE CONFIGURATION
+    // ==========================================
+    const firebaseConfig = {
+        apiKey: "AIzaSyB8iEBgfYrMwusJ1OrymelxS-5eQ5HkJbY",
+        authDomain: "facts-and-1-lie-cb.firebaseapp.com",
+        projectId: "facts-and-1-lie-cb",
+        databaseURL: "https://console.firebase.google.com/u/0/project/facts-and-1-lie-cb/database/facts-and-1-lie-cb-default-rtdb/data/~2F",
+        storageBucket: "facts-and-1-lie-cb.firebasestorage.app",
+        messagingSenderId: "629156125827",
+        appId: "1:629156125827:web:69235337b78a0718414fb6"
+    };
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // ==========================================
+    // 2. GLOBAL VARIABLES
+    // ==========================================
+    let isHost = false;
+    let roomCode = "";
+    let myName = "";
+    let factsQueue = [];
+    let currentGameState = null;
+
+    // ==========================================
+    // 3. UI NAVIGATION
+    // ==========================================
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    }
+
+    // ==========================================
+    // 4. HOST FUNCTIONS
+    // ==========================================
+    function verifyHost() {
+        const pass = document.getElementById('host-password').value;
+        if (pass === "Bryan") {
+            isHost = true;
+            showScreen('host-setup-screen');
+        } else {
+            alert("Incorrect Password!");
+        }
+    }
+
+    function addFactToList() {
+        const name = document.getElementById('fact-name').value;
+        const f1 = document.getElementById('fact-1').value;
+        const f2 = document.getElementById('fact-2').value;
+        const f3 = document.getElementById('fact-3').value;
+        const lie = document.getElementById('lie-select').value;
+
+        if (!name || !f1 || !f2 || !f3 || !lie) {
+            alert("Please fill out all fields and select the lie.");
+            return;
+        }
+
+        factsQueue.push({ name, f1, f2, f3, lie: parseInt(lie) });
+        document.getElementById('queue-count').innerText = factsQueue.length;
+        
+        document.getElementById('fact-name').value = '';
+        document.getElementById('fact-1').value = '';
+        document.getElementById('fact-2').value = '';
+        document.getElementById('fact-3').value = '';
+        document.getElementById('lie-select').value = '';
+    }
+
+    function createRoom() {
+        if (factsQueue.length === 0) {
+            alert("Please add at least one person's facts!");
+            return;
+        }
+
+        roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+        myName = "Host";
+        
+        db.ref('rooms/' + roomCode).set({
+            status: "active",
+            currentRound: 0,
+            revealed: false,
+            facts: factsQueue,
+            players: { "Host": { score: 0 } }
+        });
+
+        document.getElementById('host-controls').style.display = 'block';
+        enterGameScreen();
+    }
+
+    // ==========================================
+    // 5. PLAYER FUNCTIONS
+    // ==========================================
+    function joinRoom() {
+        roomCode = document.getElementById('room-code-input').value.toUpperCase();
+        myName = document.getElementById('player-name-input').value;
+
+        if (!roomCode || !myName) {
+            alert("Please enter a room code and your name.");
+            return;
+        }
+
+        db.ref('rooms/' + roomCode).once('value', snapshot => {
+            if (snapshot.exists()) {
+                db.ref(`rooms/${roomCode}/players/${myName}`).set({ score: 0, hasVotedThisRound: false });
+                enterGameScreen();
+            } else {
+                alert("Room not found!");
+            }
+        });
+    }
+
+    function submitVote(guess) {
+        if (currentGameState.revealed) return;
+        
+        const currentRoundData = currentGameState.facts[currentGameState.currentRound];
+        const isCorrect = (guess === currentRoundData.lie);
+
+        if (isCorrect) {
+            db.ref(`rooms/${roomCode}/players/${myName}/score`).set(currentGameState.players[myName].score + 1);
+        }
+        db.ref(`rooms/${roomCode}/players/${myName}/hasVotedThisRound`).set(true);
+
+        document.getElementById('vote-status').innerText = "Vote submitted! Waiting for reveal...";
+        document.querySelectorAll('.fact-btn').forEach(btn => btn.disabled = true);
+    }
+
+    // ==========================================
+    // 6. GAME ENGINE (SYNC)
+    // ==========================================
+    function enterGameScreen() {
+        showScreen('game-screen');
+        document.getElementById('room-display').innerText = "Code: " + roomCode;
+
+        db.ref('rooms/' + roomCode).on('value', snapshot => {
+            currentGameState = snapshot.val();
+            updateUI(currentGameState);
+        });
+    }
+
+    function updateUI(state) {
+        if (!state) return;
+
+        // Sort players for leaderboard
+        const sortedPlayers = Object.entries(state.players)
+            .filter(([name]) => name !== "Host")
+            .sort((a, b) => b[1].score - a[1].score);
+
+        // Update active leaderboard
+        const lbList = document.getElementById('leaderboard-list');
+        lbList.innerHTML = '';
+        sortedPlayers.forEach(([name, data]) => {
+            const li = document.createElement('li');
+            li.innerHTML = `<span style="color: var(--primary);">${name}</span> <span style="float: right;">${data.score} pts</span>`;
+            lbList.appendChild(li);
+        });
+
+        // Check if game is over
+        if (state.currentRound >= state.facts.length) {
+            triggerCelebration(sortedPlayers);
+            return;
+        }
+
+        // Update Game Board
+        const roundData = state.facts[state.currentRound];
+        document.getElementById('current-person').innerText = `Whose facts are these? ${roundData.name}`;
+        document.getElementById('voting-area').style.display = 'block';
+        
+        const b1 = document.getElementById('btn-opt-1');
+        const b2 = document.getElementById('btn-opt-2');
+        const b3 = document.getElementById('btn-opt-3');
+
+        b1.innerText = roundData.f1; b2.innerText = roundData.f2; b3.innerText = roundData.f3;
+
+        if (!state.revealed) {
+            // Active voting phase
+            b1.className = 'fact-btn'; b2.className = 'fact-btn'; b3.className = 'fact-btn';
+            
+            if (!isHost && (!state.players[myName] || !state.players[myName].hasVotedThisRound)) {
+                b1.disabled = false; b2.disabled = false; b3.disabled = false;
+                document.getElementById('vote-status').innerText = "Click the lie!";
+            } else if (!isHost) {
+                document.getElementById('vote-status').innerText = "Vote submitted! Waiting for reveal...";
+            } else {
+                document.getElementById('vote-status').innerText = "Players are voting...";
+            }
+        } else {
+            // Reveal phase
+            b1.disabled = true; b2.disabled = true; b3.disabled = true;
+            
+            b1.className = 'fact-btn ' + (roundData.lie === 1 ? 'lie-revealed' : 'truth-revealed');
+            b2.className = 'fact-btn ' + (roundData.lie === 2 ? 'lie-revealed' : 'truth-revealed');
+            b3.className = 'fact-btn ' + (roundData.lie === 3 ? 'lie-revealed' : 'truth-revealed');
+            
+            document.getElementById('vote-status').innerText = "The Lie has been revealed!";
+        }
+    }
+
+    // ==========================================
+    // 7. CELEBRATION SEQUENCE
+    // ==========================================
+    function triggerCelebration(sortedPlayers) {
+        showScreen('celebration-screen');
+        
+        if (sortedPlayers.length > 0) {
+            document.getElementById('winner-name').innerText = sortedPlayers[0][0];
+            document.getElementById('winner-score').innerText = sortedPlayers[0][1].score + " pts";
+            
+            const finalLb = document.getElementById('final-leaderboard');
+            finalLb.innerHTML = '';
+            sortedPlayers.slice(1).forEach(([name, data], index) => {
+                const li = document.createElement('li');
+                li.style.padding = "8px 0";
+                li.style.borderBottom = "1px solid rgba(0,0,0,0.1)";
+                li.innerText = `${index + 2}. ${name} - ${data.score} pts`;
+                finalLb.appendChild(li);
+            });
+        }
+
+        // Fire Confetti
+        var duration = 3 * 1000;
+        var animationEnd = Date.now() + duration;
+        var defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+        function randomInRange(min, max) { return Math.random() * (max - min) + min; }
+
+        var interval = setInterval(function() {
+            var timeLeft = animationEnd - Date.now();
+            if (timeLeft <= 0) return clearInterval(interval);
+            var particleCount = 50 * (timeLeft / duration);
+            confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } }));
+            confetti(Object.assign({}, defaults, { particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } }));
+        }, 250);
+    }
+
+    // ==========================================
+    // 8. HOST GAME CONTROLS
+    // ==========================================
+    function revealLie() {
+        db.ref(`rooms/${roomCode}/revealed`).set(true);
+    }
+
+    function nextRound() {
+        if (currentGameState.currentRound >= currentGameState.facts.length) return;
+
+        const updates = {};
+        Object.keys(currentGameState.players).forEach(p => {
+            updates[`players/${p}/hasVotedThisRound`] = false;
+        });
+        updates['revealed'] = false;
+        updates['currentRound'] = currentGameState.currentRound + 1;
+
+        db.ref(`rooms/${roomCode}`).update(updates);
+    }
+</script>
+
+</body>
+</html>
